@@ -1,0 +1,498 @@
+<label>Iteration# </label><span id="iteration_count"></span><br/>
+<canvas id="example" width="640" height="480">
+This text is displayed if your browser does not support HTML5 Canvas.
+</canvas>
+
+<script>
+var prisoners_ess_canvas = ( function ()
+{
+"use strict";
+var exports = {};
+var STRATEGY_RANDOM = 0; var STRATEGY_DEFECT = 1; var STRATEGY_COOPERATE = 2; var STRATEGY_TIT_FOR_TAT = 3;
+var CHOICE_UNKNOWN = 0; var CHOICE_DEFECT = 1; var CHOICE_COOPERATE = 2;
+var CHOICES = [ CHOICE_COOPERATE, CHOICE_DEFECT ];
+
+var AGENT_START_SCORE = 100.0;
+var AGENT_MAX_SCORE = AGENT_START_SCORE + 500.0;
+
+var example = document.getElementById( 'example' );
+var context = example.getContext( '2d' );
+
+var timeout_id; // timeout handle
+
+var current_iteration; // initial loop iterator value
+var max_steps; // so the firefox does not run forever :)
+var iteration_delay; //1000/25;
+var probability; // probability of exclusion of birth/death from the rulesA
+
+var life_width = Math.ceil( 640/4 );
+var life_height = Math.ceil( 480/4 );
+var life_universe = Array();
+var old_choices;
+
+function Agent( strategy_id, score )
+{
+	this.strategy_id = strategy_id;
+	this.score = score;
+	this.agent_is_newborn = 1;
+}
+Agent.prototype = {
+	make_choice: function ( enemy_previous_choice ) {
+		if ( this.strategy_id === STRATEGY_DEFECT )
+		{
+			return CHOICE_DEFECT;
+		}
+		else if ( this.strategy_id === STRATEGY_COOPERATE )
+		{
+			return CHOICE_COOPERATE;
+		}
+		else if ( this.strategy_id === STRATEGY_TIT_FOR_TAT )
+		{
+			if ( enemy_previous_choice === CHOICE_UNKNOWN )
+			{
+				return CHOICE_COOPERATE;
+			}
+			else if ( enemy_previous_choice === CHOICE_DEFECT )
+			{
+				return CHOICE_DEFECT;
+			}
+			else if ( enemy_previous_choice === CHOICE_COOPERATE )
+			{
+				return CHOICE_COOPERATE;
+			}
+			else
+			{
+				throw "Unknown enemy_previous_choice";
+			}
+		}
+		else if ( this.strategy_id === STRATEGY_RANDOM )
+		{
+			//if ( enemy_previous_choice == CHOICE_COOPERATE )
+			//	return CHOICE_DEFECT;
+			//else
+			//	return CHOICE_COOPERATE;
+			return CHOICES[ Math.floor( Math.random() * 2 ) ];
+		}
+		else
+		{
+			throw "Unknown strategy_id";
+		}
+	}
+};
+
+// Returns scores of two agents that play Prisoners dilemma
+var PD_T_one_defect = 20;
+var PD_R_both_cooperate = 1;
+var PD_P_both_defect = -1;
+var PD_S_one_loose = -2;
+var PD_payoff_matrix = [
+	// agent2 cooperate                             agent2 defect
+	[ [ PD_R_both_cooperate, PD_R_both_cooperate ], [ PD_S_one_loose, PD_T_one_defect ], ], // agent1 cooperate
+	[ [ PD_T_one_defect, PD_S_one_loose ],          [ PD_P_both_defect, PD_P_both_defect ] ] // agent1 defect
+];
+function play( agent1, agent1_previous_choice, agent2, agent2_previous_choice )
+{
+	var choice1 = agent1.make_choice( agent2_previous_choice );
+	var choice2 = agent2.make_choice( agent1_previous_choice );
+	var scores = PD_payoff_matrix[
+		choice1 === CHOICE_COOPERATE ? 0 : 1
+	][ choice2 == CHOICE_COOPERATE ? 0 : 1 ];
+	agent1.score += scores[0];
+	if ( agent1.score >= AGENT_MAX_SCORE )
+		agent1.score = AGENT_MAX_SCORE;
+	agent2.score += scores[1];
+	if ( agent2.score >= AGENT_MAX_SCORE )
+		agent2.score = AGENT_MAX_SCORE;
+//log( 'choice1 ' + choice1 + ' choice2 ' + choice2 + ' scores ' + scores );
+//throw 1;
+	return [ choice1, choice2 ];
+}
+
+function start_with_random()
+{
+	old_choices = get_choices_matrix();
+	// fill undefined lines to make universe drawing more fast
+	for ( var y = 0; y < life_height; y++ )
+	{
+		//if ( ! life_universe[ y ] )
+		life_universe[ y ] = Array( life_width );
+		//life_universe[y] = [];
+		for ( var x = 0; x < life_width; x++ )
+			//life_universe[ y ][ x ] = new Agent( 0, AGENT_START_SCORE ); // Math.floor( 10*Math.random() ) );
+			life_universe[ y ][ x ] = new Agent( 0, Math.floor( AGENT_START_SCORE*Math.random() ) );
+	}
+}
+
+function random_score()
+{
+	// fill undefined lines to make universe drawing more fast
+	for ( var y = 0; y < life_height; y++ )
+	{
+		for ( var x = 0; x < life_width; x++ )
+			//life_universe[ y ][ x ] = new Agent( 0, AGENT_START_SCORE ); // Math.floor( 10*Math.random() ) );
+			life_universe[ y ][ x ].score = Math.floor( AGENT_START_SCORE*Math.random() );
+	}
+}
+
+function start_with_sectors()
+{
+	old_choices = get_choices_matrix();
+	// fill undefined lines to make universe drawing more fast
+	for ( var y = 0; y < life_height; y++ )
+	{
+		life_universe[ y ] = Array( life_width );
+		for ( var x = 0; x < life_width; x++ )
+		{
+			var agent_strategy;
+			if ( y < life_height/2 )
+			{
+				if ( x < life_width/2 )
+					agent_strategy = STRATEGY_DEFECT;
+				else
+					agent_strategy = STRATEGY_TIT_FOR_TAT;
+			}
+			else
+			{
+				if ( x < life_width/2 )
+					agent_strategy = STRATEGY_RANDOM;
+				else
+					agent_strategy = STRATEGY_COOPERATE;
+			}
+			life_universe[ y ][ x ] =
+				new Agent( agent_strategy, AGENT_START_SCORE );
+				//new Agent( agent_strategy, Math.floor( AGENT_START_SCORE*Math.random() ) );
+		}
+	}
+}
+
+var color_components_by_strategy_id = {
+	0: [255, 255, 255], // none
+	1: [255, 0, 0], // defect
+	2: [0, 255, 0], // cooperate
+	3: [255, 255, 0] // tit for tat
+};
+var RED = 0; var GREEN = 1; var BLUE = 2;
+
+
+function get_choices_matrix()
+{
+	var matrix = Array( life_height );
+	for ( var y = 0; y < life_height; y++ )
+	{
+		matrix[y] = Array( life_width );
+		for ( var x = 0; x < life_width; x++ )
+		{
+			matrix[y][x] = Array( 8 );
+			for( var i = 0; i < 8; i++ )
+				matrix[y][x][i] = CHOICE_COOPERATE;
+		}
+	}
+	return matrix;
+}
+
+function get_color_by_agent( agent )
+{
+	var components = color_components_by_strategy_id[ agent.strategy_id ];
+	var intensity = agent.score / AGENT_MAX_SCORE;
+	if ( intensity > 1 ) intensity = 1;
+	if ( intensity <= 0 ) intensity = 0;
+	//return "#"+
+	//	(0x1000000+(Math.round((t-R)*p)+R)*0x10000+
+	//		(Math.round((t-G)*p)+G)*0x100+
+	//		(Math.round((t-B)*p)+B)
+	//	).toString(16).slice(1);
+	return 'rgb('+Math.round( components[ RED ]*intensity ) +
+		','+Math.round( components[GREEN]*intensity )+
+		','+Math.round( components[BLUE]*intensity )+')';
+}
+
+function draw_universe( context )
+{
+	context.clearRect( 0, 0, 640, 480 );
+
+	for ( var x = 0; x < life_width; x ++ )
+		for ( var y = 0; y < life_height; y ++ )
+			if ( life_universe[y][x] )
+			{
+				//context.fillStyle = color_by_strategy_id[ life_universe[y][x].strategy_id ];
+				context.fillStyle = get_color_by_agent( life_universe[y][x] );
+				//log( context.fillStyle );
+				context.fillRect( 0 + x * 4, 0 + y * 4, 4, 4 );
+			}
+			else
+			{
+				throw "Something bad with life_universe";
+			}
+}
+
+function get_true_with_probability ( probability )
+{
+	return Math.random() <= probability; // forgot if it is defined that way %-(
+}
+
+var OC_LEFT = 0; var OC_RIGHT = 1; var OC_TOP = 2; var OC_BOTTOM = 3;
+var OC_TOP_LEFT = 4; var OC_BOTTOM_RIGHT = 5; var OC_TOP_RIGHT = 6; var OC_BOTTOM_LEFT = 7;
+
+function do_turn()
+{
+	var new_choices = get_choices_matrix();
+	for ( var x = 0; x < life_width; x ++ )
+	{
+		for ( var y = 0; y < life_height; y ++ )
+		{
+			life_universe[y][x].agent_is_newborn = 0;
+			//if ( y >= life_height - 1 )
+			//	continue;
+			//if ( x >= life_width - 1 )
+			//	continue;
+
+			/*
+				choices array map for each cell:
+				each index shows what the neighbour did to this cell last turn.
+
+				---------
+				|4 /2 \6|
+				|-\   /-|     random_score
+				|0 \_/ 1|
+				|  / \  |
+				|-/   \-|
+				|7\ 3 /5|
+				---------
+			*/
+
+			if ( x < life_width - 1 )
+			{
+				// play with horizontal neigbour
+				var choices1 = play(
+					life_universe[y][x], old_choices[y][x+1][ OC_LEFT ],
+					life_universe[y][x+1], old_choices[y][x][ OC_RIGHT ]
+				);
+				new_choices[y][x+1][ OC_LEFT ] = choices1[0];  // what 0th player did to 1th
+				new_choices[y][x][ OC_RIGHT ] = choices1[1];   // what 1th player did to 0th
+
+				// play with right bottom neigbour
+				if ( y < life_height - 1)
+				{
+					var choices5 = play(
+						life_universe[y][x], old_choices[y+1][x+1][ OC_TOP_LEFT ],
+						life_universe[y+1][x+1], old_choices[y][x][ OC_BOTTOM_RIGHT ]
+					);
+					new_choices[y+1][x+1][ OC_TOP_LEFT ] = choices5[0];     // what 0th player did to 1th
+					new_choices[y][x][ OC_BOTTOM_RIGHT ] = choices5[1];     // what 1th player did to 0th
+				}
+			}
+
+			if ( y < life_height - 1 )
+			{
+				// play with vertiacal neigbour
+				var choices3 = play(
+					life_universe[y][x], old_choices[y+1][x][ OC_TOP ],
+					life_universe[y+1][x], old_choices[y][x][ OC_BOTTOM ]
+				);
+				new_choices[y+1][x][ OC_TOP ] = choices3[0];      // what 0th player did to 1th
+				new_choices[y][x][ OC_BOTTOM ] = choices3[1];     // what 1th player did to 0th
+
+				// play with right top neigbour
+				if ( x > 0 )
+				{
+					var choices6 = play(
+						life_universe[y][x], old_choices[y+1][x-1][ OC_BOTTOM_LEFT ],
+						life_universe[y+1][x-1], old_choices[y][x][ OC_TOP_RIGHT ]
+					);
+					new_choices[y+1][x-1][ OC_BOTTOM_LEFT ] = choices6[0]; // what 0th player did to 1th
+					new_choices[y][x][ OC_TOP_RIGHT ] = choices6[1];       // what 1th player did to 0th
+				}
+			}
+		}
+	}
+	old_choices = new_choices;
+
+	// Remove dead bodies
+	for ( var x = 0; x < life_width; x ++ )
+	{
+		for ( var y = 0; y < life_height; y ++ )
+		{
+			if ( life_universe[y][x].score <= 0 )
+			{
+				var neighbours_strategies = [];
+
+				// clear choices for dead cell
+				old_choices[y][x] = Array( 8 );
+				for ( var i = 0; i < 8; i++ )
+					old_choices[y][x][i] = CHOICE_COOPERATE;
+
+				// for all neighbours forget about dead cell and push neighbours_strategies
+				if ( y > 0 )
+				{
+					old_choices[y-1][x][ OC_RIGHT ] = CHOICE_COOPERATE;
+					if ( ! life_universe[y-1][x].agent_is_newborn )
+						neighbours_strategies.push( life_universe[y-1][x].strategy_id );
+
+					if ( x > 0 )
+					{
+						old_choices[y-1][x-1][ OC_BOTTOM_RIGHT ] = CHOICE_COOPERATE;
+						if ( ! life_universe[y-1][x-1].agent_is_newborn )
+							neighbours_strategies.push( life_universe[y-1][x-1].strategy_id );
+					}
+					if ( x < life_width - 1 )
+					{
+						old_choices[y-1][x+1][ OC_BOTTOM_LEFT ] = CHOICE_COOPERATE;
+						if ( ! life_universe[y-1][x+1].agent_is_newborn )
+							neighbours_strategies.push( life_universe[y-1][x+1].strategy_id );
+					}
+				}
+				if ( y < life_height - 1 )
+				{
+					old_choices[y+1][x][ OC_TOP ] = CHOICE_COOPERATE;
+					if ( ! life_universe[y+1][x].agent_is_newborn )
+						neighbours_strategies.push( life_universe[y+1][x].strategy_id );
+
+					if ( x > 0 )
+					{
+						old_choices[y+1][x-1][ OC_TOP_RIGHT ] = CHOICE_COOPERATE;
+						if ( ! life_universe[y+1][x-1].agent_is_newborn )
+							neighbours_strategies.push( life_universe[y+1][x-1].strategy_id );
+					}
+					if ( x < life_width - 1 )
+					{
+						old_choices[y+1][x+1][ OC_TOP_LEFT ] = CHOICE_COOPERATE;
+						if ( ! life_universe[y+1][x+1].agent_is_newborn )
+							neighbours_strategies.push( life_universe[y+1][x+1].strategy_id );
+					}
+				}
+				if ( x > 0 )
+				{
+					old_choices[y][x-1][ OC_RIGHT ] = CHOICE_COOPERATE;
+					if ( ! life_universe[y][x-1].agent_is_newborn )
+						neighbours_strategies.push( life_universe[y][x-1].strategy_id );
+				}
+				if ( x < life_width - 1 )
+				{
+					old_choices[y][x+1][ OC_LEFT ] = CHOICE_COOPERATE;
+					if ( ! life_universe[y][x+1].agent_is_newborn )
+						neighbours_strategies.push( life_universe[y][x+1].strategy_id );
+				}
+
+				// get new strategy
+				if ( neighbours_strategies.length == 0 )
+					neighbours_strategies = [ random_strategy() ];
+				var new_strategy = neighbours_strategies[ Math.floor( Math.random() * neighbours_strategies.length ) ];
+
+				// change agent
+				//life_universe[y][x] = new Agent( new_strategy, AGENT_START_SCORE );
+				life_universe[y][x] = new Agent( new_strategy, Math.floor( AGENT_START_SCORE/2 + AGENT_START_SCORE*Math.random()/2 ) );
+			}
+
+			// randomly change strategy
+			if ( get_true_with_probability( probability ) )
+			{
+				life_universe[y][x].strategy_id = random_strategy();
+			}
+		}
+	}
+
+	return 1; // for chaining
+}
+
+function random_strategy()
+{
+	return [ STRATEGY_RANDOM, STRATEGY_COOPERATE,
+			STRATEGY_DEFECT, STRATEGY_TIT_FOR_TAT
+		][ Math.floor( Math.random() * 4 ) ];
+}
+
+function start_with_start_score()
+{
+	// fill undefined lines to make universe drawing more fast
+	for ( var y = 0; y < life_height; y++ )
+	{
+		life_universe[ y ] = Array( life_width );
+		for ( var x = 0; x < life_width; x++ )
+			life_universe[ y ][ x ] = new Agent( 0, AGENT_START_SCORE ); // Math.floor( 10*Math.random() ) );
+			//life_universe[ y ][ x ] = new Agent( 0, Math.floor( AGENT_START_SCORE*Math.random() ) );
+	}
+}
+
+function reset_sim()
+{
+	current_iteration = 0;
+	start_with_start_score();
+}
+
+function do_timer_triggered_iteration ()
+{
+	// condition
+	if ( current_iteration >= max_steps )
+		return;
+
+	document.getElementById( 'iteration_count' ).innerHTML = current_iteration;
+
+	draw_universe( context );
+	do_turn();
+	! iteration_delay
+		&& do_turn()
+		&& do_turn()
+		&& do_turn()
+		&& do_turn()
+		//&& do_turn()
+		//&& do_turn()
+		//&& do_turn()
+		//&& do_turn()
+		//&& do_turn()
+		&& ( current_iteration += 4 );
+
+	current_iteration++;
+	timeout_id = setTimeout( do_timer_triggered_iteration, iteration_delay ); // repeat
+}; // do_timer_triggered_iteration
+
+
+function on_change_params()
+{
+	iteration_delay = parseInt( document.getElementById( 'iteration_delay' ).value, 10 );
+	max_steps = parseInt( document.getElementById( 'max_steps' ).value, 10 );
+	probability = 0 + parseInt( document.getElementById( 'probability_numerator' ).value, 10 )
+		/ parseInt( document.getElementById( 'probability_denominator' ).value, 10 );
+}
+
+function log( message )
+{
+	console.log( message );
+}
+
+function init_prisoners_ess_canvas ()
+{
+	old_choices = get_choices_matrix();
+
+	reset_sim();
+	//do_turn();
+	draw_universe( context ); // TODO not needed, used for DEBUG
+	do_timer_triggered_iteration(); // initial iteration
+
+}
+
+exports[ 'on_change_params' ] = on_change_params;
+exports[ 'start_with_random' ] = start_with_random;
+exports[ 'random_score' ] = random_score;
+exports[ 'reset_sim' ] = reset_sim;
+exports[ 'start_with_sectors' ] = start_with_sectors;
+exports[ 'init_prisoners_ess_canvas' ] = init_prisoners_ess_canvas;
+return exports;
+})(); // function prisoners_ess_canvas
+prisoners_ess_canvas.init_prisoners_ess_canvas();
+
+</script>
+
+<br/>
+<label>Step delay, ms: </label><input type="text" id='iteration_delay' value="5" />
+<label>Max_iterations: </label><input type="text" id='max_steps' value="200000" /><br/>
+<label>Probablility: </label><input type="text" id='probability_numerator' value="1" /> /
+<input type="text" id='probability_denominator' value="10000" />
+<input type="button" value="Apply params" onClick="prisoners_ess_canvas.on_change_params()" />
+<input type="button" value="Reset sim with params" onClick="prisoners_ess_canvas.on_change_params(); prisoners_ess_canvas.reset_sim()" /><br />
+<input type="button" value="Start with random score" onClick="prisoners_ess_canvas.start_with_random()" />
+<input type="button" value="Randomize score" onClick="prisoners_ess_canvas.random_score()" />
+<input type="button" value="Start with sectors" onClick="prisoners_ess_canvas.start_with_sectors()" />
+<script>
+	prisoners_ess_canvas.on_change_params();
+</script>
+
