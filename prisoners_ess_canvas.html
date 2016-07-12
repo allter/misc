@@ -1,3 +1,22 @@
+<!--
+    Copyright (C) 2016, Andrey Smirnov
+
+    The JavaScript code in this page is free software: you can
+    redistribute it and/or modify it under the terms of the GNU
+    General Public License (GNU GPL) as published by the Free Software
+    Foundation, either version 3 of the License, or (at your option)
+    any later version.  The code is distributed WITHOUT ANY WARRANTY;
+    without even the implied warranty of MERCHANTABILITY or FITNESS
+    FOR A PARTICULAR PURPOSE.  See the GNU GPL for more details.
+
+    As additional permission under GNU GPL version 3 section 7, you
+    may distribute non-source (e.g., minimized or compacted) forms of
+    that code without the copy of the GNU GPL normally required by
+    section 4, provided you include this license notice and a URL
+    through which recipients can access the Corresponding Source.
+
+-->
+
 <label>Iteration# </label><span id="iteration_count"></span><br/>
 <canvas id="example" width="640" height="480">
 This text is displayed if your browser does not support HTML5 Canvas.
@@ -11,6 +30,8 @@ var exports = {};
 var STRATEGY_RANDOM = 0; var STRATEGY_DEFECT = 1; var STRATEGY_COOPERATE = 2; var STRATEGY_TIT_FOR_TAT = 3;
 var CHOICE_UNKNOWN = 0; var CHOICE_DEFECT = 1; var CHOICE_COOPERATE = 2;
 var CHOICES = [ CHOICE_COOPERATE, CHOICE_DEFECT ];
+
+var DEFAULT_CHOICE = CHOICE_UNKNOWN;
 
 var AGENT_START_SCORE = 100.0;
 var AGENT_MAX_SCORE = AGENT_START_SCORE + 500.0;
@@ -30,66 +51,101 @@ var life_height = Math.ceil( 480/4 );
 var life_universe = Array();
 var old_choices;
 
+var TIT_FOR_TAT_RANDOM_CHOICE = 3;
+var TIT_FOR_TAT_CHOICE_FOR_UNKNOWN = TIT_FOR_TAT_RANDOM_CHOICE;
+
 function Agent( strategy_id, score )
 {
 	this.strategy_id = strategy_id;
 	this.score = score;
 	this.agent_is_newborn = 1;
 }
-Agent.prototype = {
-	make_choice: function ( enemy_previous_choice ) {
-		if ( this.strategy_id === STRATEGY_DEFECT )
+Agent.prototype.make_choice = Agent_make_choice;
+function Agent_make_choice( enemy_previous_choice ) {
+	if ( this.strategy_id === STRATEGY_DEFECT )
+	{
+		return CHOICE_DEFECT;
+	}
+	else if ( this.strategy_id === STRATEGY_COOPERATE )
+	{
+		return CHOICE_COOPERATE;
+	}
+	else if ( this.strategy_id === STRATEGY_TIT_FOR_TAT )
+	{
+		if ( enemy_previous_choice === CHOICE_UNKNOWN )
+		{
+			if ( TIT_FOR_TAT_CHOICE_FOR_UNKNOWN === TIT_FOR_TAT_RANDOM_CHOICE )
+			{
+				return random_choice();
+			}
+			else
+				return TIT_FOR_TAT_CHOICE_FOR_UNKNOWN;
+			//return DEFAULT_CHOICE;
+			//return CHOICE_COOPERATE;
+		}
+		else if ( enemy_previous_choice === CHOICE_DEFECT )
 		{
 			return CHOICE_DEFECT;
 		}
-		else if ( this.strategy_id === STRATEGY_COOPERATE )
+		else if ( enemy_previous_choice === CHOICE_COOPERATE )
 		{
 			return CHOICE_COOPERATE;
 		}
-		else if ( this.strategy_id === STRATEGY_TIT_FOR_TAT )
-		{
-			if ( enemy_previous_choice === CHOICE_UNKNOWN )
-			{
-				return CHOICE_COOPERATE;
-			}
-			else if ( enemy_previous_choice === CHOICE_DEFECT )
-			{
-				return CHOICE_DEFECT;
-			}
-			else if ( enemy_previous_choice === CHOICE_COOPERATE )
-			{
-				return CHOICE_COOPERATE;
-			}
-			else
-			{
-				throw "Unknown enemy_previous_choice";
-			}
-		}
-		else if ( this.strategy_id === STRATEGY_RANDOM )
-		{
-			//if ( enemy_previous_choice == CHOICE_COOPERATE )
-			//	return CHOICE_DEFECT;
-			//else
-			//	return CHOICE_COOPERATE;
-			return CHOICES[ Math.floor( Math.random() * 2 ) ];
-		}
 		else
 		{
-			throw "Unknown strategy_id";
+			throw "Unknown enemy_previous_choice";
 		}
 	}
-};
+	else if ( this.strategy_id === STRATEGY_RANDOM )
+	{
+		//if ( enemy_previous_choice == CHOICE_COOPERATE )
+		//	return CHOICE_DEFECT;
+		//else
+		//	return CHOICE_COOPERATE;
+		//return CHOICES[ Math.floor( Math.random() * 2 ) ];
+		return random_choice();
+	}
+	else
+	{
+		throw "Unknown strategy_id";
+	}
+}
+
+function random_choice()
+{
+	return CHOICES[ Math.floor( Math.random() * 2 ) ];
+}
 
 // Returns scores of two agents that play Prisoners dilemma
 var PD_T_one_defect = 2;
 var PD_R_both_cooperate = 1;
 var PD_P_both_defect = -1;
 var PD_S_one_loose = -2;
-var PD_payoff_matrix = [
-	// agent2 cooperate                             agent2 defect
-	[ [ PD_R_both_cooperate, PD_R_both_cooperate ], [ PD_S_one_loose, PD_T_one_defect ], ], // agent1 cooperate
-	[ [ PD_T_one_defect, PD_S_one_loose ],          [ PD_P_both_defect, PD_P_both_defect ] ] // agent1 defect
-];
+var PD_payoff_matrix;
+function update_payoff_matrix()
+{
+	PD_payoff_matrix = [
+		// agent2 cooperate                             agent2 defect
+		[ [ PD_R_both_cooperate, PD_R_both_cooperate ], [ PD_S_one_loose, PD_T_one_defect ], ], // agent1 cooperate
+		[ [ PD_T_one_defect, PD_S_one_loose ],          [ PD_P_both_defect, PD_P_both_defect ] ] // agent1 defect
+	];
+	document.getElementsByClassName("PD_MATR_CC")[0].innerHTML
+		= "R= "+ get_control_snippet( 'R', PD_payoff_matrix[0][0][0] ) +"," +
+			"R="+PD_payoff_matrix[0][0][1];
+	document.getElementsByClassName("PD_MATR_CD")[0].innerHTML
+		= "S="+get_control_snippet( 'S', PD_payoff_matrix[0][1][0] )+" ," +
+			"T="+PD_payoff_matrix[0][1][1];
+	document.getElementsByClassName("PD_MATR_DC")[0].innerHTML
+		= "T="+get_control_snippet( 'T', PD_payoff_matrix[1][0][0] )+" ," +
+			"S="+PD_payoff_matrix[1][0][1];
+	document.getElementsByClassName("PD_MATR_DD")[0].innerHTML
+		= "P="+get_control_snippet( 'P', PD_payoff_matrix[1][1][0] )+" ," +
+			"P="+PD_payoff_matrix[1][1][1];
+}
+function get_control_snippet( symbol, value )
+{
+	return "<input type='text' size='2' class='PD_MATR_"+symbol+"' value='"+value+"'/>";
+}
 function play( agent1, agent1_previous_choice, agent2, agent2_previous_choice )
 {
 	var choice1 = agent1.make_choice( agent2_previous_choice );
@@ -184,7 +240,7 @@ function get_choices_matrix()
 		{
 			matrix[y][x] = Array( 8 );
 			for( var i = 0; i < 8; i++ )
-				matrix[y][x][i] = CHOICE_COOPERATE;
+				matrix[y][x][i] = DEFAULT_CHOICE;
 		}
 	}
 	return matrix;
@@ -233,6 +289,15 @@ function get_true_with_probability ( probability )
 var OC_LEFT = 0; var OC_RIGHT = 1; var OC_TOP = 2; var OC_BOTTOM = 3;
 var OC_TOP_LEFT = 4; var OC_BOTTOM_RIGHT = 5; var OC_TOP_RIGHT = 6; var OC_BOTTOM_LEFT = 7;
 
+var graph;
+exports[ 'plugin_graph' ] = plugin_graph;
+function plugin_graph( graph_ )
+{
+	graph = graph_
+}
+
+var agent_strategy_counters;
+var agent_strategy_scores;
 function do_turn()
 {
 	var new_choices = get_choices_matrix();
@@ -307,7 +372,9 @@ function do_turn()
 	}
 	old_choices = new_choices;
 
-	// Remove dead bodies
+	// Remove dead bodies and count strategy scores
+	agent_strategy_counters = [ 0, 0, 0, 0 ];
+	agent_strategy_scores = [ 0, 0, 0, 0 ];
 	for ( var x = 0; x < life_width; x ++ )
 	{
 		for ( var y = 0; y < life_height; y ++ )
@@ -319,56 +386,56 @@ function do_turn()
 				// clear choices for dead cell
 				old_choices[y][x] = Array( 8 );
 				for ( var i = 0; i < 8; i++ )
-					old_choices[y][x][i] = CHOICE_COOPERATE;
+					old_choices[y][x][i] = DEFAULT_CHOICE;
 
 				// for all neighbours forget about dead cell and push neighbours_strategies
 				if ( y > 0 )
 				{
-					old_choices[y-1][x][ OC_RIGHT ] = CHOICE_COOPERATE;
+					old_choices[y-1][x][ OC_RIGHT ] = DEFAULT_CHOICE;
 					if ( ! life_universe[y-1][x].agent_is_newborn )
 						neighbours_strategies.push( life_universe[y-1][x].strategy_id );
 
 					if ( x > 0 )
 					{
-						old_choices[y-1][x-1][ OC_BOTTOM_RIGHT ] = CHOICE_COOPERATE;
+						old_choices[y-1][x-1][ OC_BOTTOM_RIGHT ] = DEFAULT_CHOICE;
 						if ( ! life_universe[y-1][x-1].agent_is_newborn )
 							neighbours_strategies.push( life_universe[y-1][x-1].strategy_id );
 					}
 					if ( x < life_width - 1 )
 					{
-						old_choices[y-1][x+1][ OC_BOTTOM_LEFT ] = CHOICE_COOPERATE;
+						old_choices[y-1][x+1][ OC_BOTTOM_LEFT ] = DEFAULT_CHOICE;
 						if ( ! life_universe[y-1][x+1].agent_is_newborn )
 							neighbours_strategies.push( life_universe[y-1][x+1].strategy_id );
 					}
 				}
 				if ( y < life_height - 1 )
 				{
-					old_choices[y+1][x][ OC_TOP ] = CHOICE_COOPERATE;
+					old_choices[y+1][x][ OC_TOP ] = DEFAULT_CHOICE;
 					if ( ! life_universe[y+1][x].agent_is_newborn )
 						neighbours_strategies.push( life_universe[y+1][x].strategy_id );
 
 					if ( x > 0 )
 					{
-						old_choices[y+1][x-1][ OC_TOP_RIGHT ] = CHOICE_COOPERATE;
+						old_choices[y+1][x-1][ OC_TOP_RIGHT ] = DEFAULT_CHOICE;
 						if ( ! life_universe[y+1][x-1].agent_is_newborn )
 							neighbours_strategies.push( life_universe[y+1][x-1].strategy_id );
 					}
 					if ( x < life_width - 1 )
 					{
-						old_choices[y+1][x+1][ OC_TOP_LEFT ] = CHOICE_COOPERATE;
+						old_choices[y+1][x+1][ OC_TOP_LEFT ] = DEFAULT_CHOICE;
 						if ( ! life_universe[y+1][x+1].agent_is_newborn )
 							neighbours_strategies.push( life_universe[y+1][x+1].strategy_id );
 					}
 				}
 				if ( x > 0 )
 				{
-					old_choices[y][x-1][ OC_RIGHT ] = CHOICE_COOPERATE;
+					old_choices[y][x-1][ OC_RIGHT ] = DEFAULT_CHOICE;
 					if ( ! life_universe[y][x-1].agent_is_newborn )
 						neighbours_strategies.push( life_universe[y][x-1].strategy_id );
 				}
 				if ( x < life_width - 1 )
 				{
-					old_choices[y][x+1][ OC_LEFT ] = CHOICE_COOPERATE;
+					old_choices[y][x+1][ OC_LEFT ] = DEFAULT_CHOICE;
 					if ( ! life_universe[y][x+1].agent_is_newborn )
 						neighbours_strategies.push( life_universe[y][x+1].strategy_id );
 				}
@@ -388,6 +455,9 @@ function do_turn()
 			{
 				life_universe[y][x].strategy_id = random_strategy();
 			}
+
+			agent_strategy_counters[ life_universe[y][x].strategy_id ]++;
+			agent_strategy_scores[ life_universe[y][x].strategy_id ] += life_universe[y][x].score;
 		}
 	}
 
@@ -442,6 +512,15 @@ function do_timer_triggered_iteration ()
 		&& ( current_iteration += 4 );
 
 	current_iteration++;
+
+	if ( graph )
+	{
+		graph.graph_to( current_iteration, agent_strategy_counters[ STRATEGY_RANDOM ], 'black' );
+		graph.graph_to( current_iteration, agent_strategy_counters[ STRATEGY_DEFECT ], 'red' );
+		graph.graph_to( current_iteration, agent_strategy_counters[ STRATEGY_COOPERATE ], 'green' );
+		graph.graph_to( current_iteration, agent_strategy_counters[ STRATEGY_TIT_FOR_TAT ], 'yellow' );
+	}
+
 	timeout_id = setTimeout( do_timer_triggered_iteration, iteration_delay ); // repeat
 }; // do_timer_triggered_iteration
 
@@ -452,6 +531,12 @@ function on_change_params()
 	max_steps = parseInt( document.getElementById( 'max_steps' ).value, 10 );
 	probability = 0 + parseInt( document.getElementById( 'probability_numerator' ).value, 10 )
 		/ parseInt( document.getElementById( 'probability_denominator' ).value, 10 );
+
+	PD_R_both_cooperate = parseInt( document.getElementsByClassName( 'PD_MATR_R' )[0].value, 10 );
+	PD_T_one_defect = parseInt( document.getElementsByClassName( 'PD_MATR_T' )[0].value, 10 );
+	PD_P_both_defect = parseInt( document.getElementsByClassName( 'PD_MATR_P' )[0].value, 10 );
+	PD_S_one_loose = parseInt( document.getElementsByClassName( 'PD_MATR_S' )[0].value, 10 );
+	update_payoff_matrix();
 }
 
 function log( message )
@@ -461,6 +546,7 @@ function log( message )
 
 function init_prisoners_ess_canvas ()
 {
+update_payoff_matrix();
 	old_choices = get_choices_matrix();
 
 	reset_sim();
@@ -478,7 +564,6 @@ exports[ 'start_with_sectors' ] = start_with_sectors;
 exports[ 'init_prisoners_ess_canvas' ] = init_prisoners_ess_canvas;
 return exports;
 })(); // function prisoners_ess_canvas
-prisoners_ess_canvas.init_prisoners_ess_canvas();
 
 </script>
 
@@ -487,12 +572,132 @@ prisoners_ess_canvas.init_prisoners_ess_canvas();
 <label>Max_iterations: </label><input type="text" id='max_steps' value="200000" /><br/>
 <label>Probablility: </label><input type="text" id='probability_numerator' value="1" /> /
 <input type="text" id='probability_denominator' value="10000" />
-<input type="button" value="Apply params" onClick="prisoners_ess_canvas.on_change_params()" />
-<input type="button" value="Reset sim with params" onClick="prisoners_ess_canvas.on_change_params(); prisoners_ess_canvas.reset_sim()" /><br />
 <input type="button" value="Start with random score" onClick="prisoners_ess_canvas.start_with_random()" />
 <input type="button" value="Randomize score" onClick="prisoners_ess_canvas.random_score()" />
 <input type="button" value="Start with sectors" onClick="prisoners_ess_canvas.start_with_sectors()" />
+
+<style>
+.PD_MATR_table {
+	border-collapse: collapse; //border: 1px solid black;
+}
+.PD_MATR_table td { border: 1px solid black }
+</style>
+<table class="PD_MATR_table">
+<tr><th><td>agent2 cooperate<td>agent2 defect</th>
+<tr><td>agent 1 cooperate<td class="PD_MATR_CC"><td class="PD_MATR_CD">
+<tr><td>agent 1 defect<td class="PD_MATR_DC"><td class="PD_MATR_DD">
+</table>
+
+<input type="button" value="Apply params" onClick="prisoners_ess_canvas.on_change_params()" />
+<input type="button" value="Reset sim with params" onClick="graph.redraw(); prisoners_ess_canvas.on_change_params(); prisoners_ess_canvas.reset_sim()" /><br />
 <script>
+	prisoners_ess_canvas.init_prisoners_ess_canvas();
 	prisoners_ess_canvas.on_change_params();
+</script>
+<div>
+<canvas id="population_graph" width="640" height="200">
+This text is displayed if your browser does not support HTML5 Canvas.
+</canvas>
+</div>
+<script>
+var population_graph = ( function ()
+{
+"use strict";
+var exports = {};
+
+function TimeSeries()
+{
+}
+
+function TimeSeries_add( t, y )
+{
+}
+
+function Graph( args )
+{
+	this.context = args.canvas_context;
+	this.width = args.canvas_width;
+	this.height = args.canvas_height;
+	this.max_y = args.max_y || 10;
+	this.min_y = args.min_y || 0;
+	this.max_x = args.max_x || 10;
+	this.min_x = args.min_x || 0;
+	this.old = {};
+	this._recalculate_scales();
+}
+Graph.prototype._recalculate_scales = Graph__recalculate_scales;
+function Graph__recalculate_scales()
+{
+	this.scale_x = this.width / ( this.max_x - this.min_x );
+	this.scale_y = this.height / ( this.max_y - this.min_y );
+}
+
+Graph.prototype.skip_to = Graph_skip_to;
+function Graph_skip_to( x, y, strokeStyle )
+{
+	if ( ! strokeStyle ) strokeStyle = 'black';
+	this.old[strokeStyle] = {};
+	this.old[strokeStyle].x = x;
+	this.old[strokeStyle].y = y;
+}
+
+Graph.prototype.graph_to = Graph_graph_to;
+function Graph_graph_to( x, y, strokeStyle )
+{
+	if ( ! strokeStyle ) strokeStyle = 'black';
+	var c = this.context;
+	if ( ! this.old[ strokeStyle ] ) this.old[ strokeStyle ] = {};
+	c.beginPath();
+	c.moveTo(
+		this.scale_x * ( this.old[strokeStyle].x - this.min_x ),
+		this.height - 1 - this.scale_y * ( this.old[strokeStyle].y - this.min_y )
+	);
+	this.old[strokeStyle].x = x;
+	this.old[strokeStyle].y = y;
+	c.lineTo(
+		this.scale_x * ( this.old[strokeStyle].x - this.min_x ),
+		this.height - 1 - this.scale_y * ( this.old[strokeStyle].y - this.min_y )
+	);
+
+	if ( strokeStyle )
+	{
+		c.strokeStyle = strokeStyle;
+	}
+	c.stroke();
+}
+
+Graph.prototype.redraw = Graph_redraw;
+function Graph_redraw()
+{
+	this.context.clearRect( 0, 0, this.width, this.height );
+	// TODO unimplemented
+	//throw "unimplemented";
+};
+
+exports.Graph = Graph;
+
+return exports;
+} )(); // population_graph
+
+var graph = new population_graph.Graph( {
+	canvas_context: document .
+		getElementById( 'population_graph' ) .
+		getContext( '2d' ),
+	canvas_width: 640,
+	canvas_height: 200,
+	max_x: 100000,//640*10,
+	max_y: 640*480/(4*4)
+} );
+
+/*
+graph.skip_to( 0, 15 );
+graph.graph_to( 2, 0 );
+graph.graph_to( 4, 5 );
+
+graph.skip_to( 0, 15, 'red' );
+graph.graph_to( 4, 5, 'red' );
+*/
+prisoners_ess_canvas.plugin_graph( graph );
+
 </script>
 
